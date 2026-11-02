@@ -1,9 +1,14 @@
+use bevy::camera::NormalizedRenderTarget;
+use bevy::input::mouse::{MouseMotion, MouseScrollUnit};
+use bevy::picking::pointer::{PointerId, PointerLocation};
 use bevy::prelude::*;
 use bevy_waveform::WaveformPlugin;
 use bevy_waveform::load::WaveformDecodeF32;
-use bevy_waveform::render::{ViewportRange, WaveformMaterial, WaveformParams, WaveformStyle};
+use bevy_waveform::render::{
+    ViewportRange, WaveformMaterial, WaveformParams, WaveformRangeDrag, WaveformStyle,
+};
 
-#[derive(Resource)]
+#[derive(Component)]
 pub struct AudioData(WaveformDecodeF32);
 
 pub const AUDIO: &str = r".\assets\audio.wav";
@@ -29,81 +34,65 @@ fn setup(
         params: WaveformParams::build_params(&style),
     });
 
-    commands.spawn((
-        Node {
-            width: Val::Percent(50.0),
-            height: Val::Percent(50.0),
-            ..default()
-        },
-        MaterialNode(mat),
-        range,
-        style,
-    ));
-
-    commands.insert_resource(AudioData(audio));
+    commands
+        .spawn((
+            Node {
+                width: Val::Percent(50.0),
+                height: Val::Percent(50.0),
+                ..default()
+            },
+            MaterialNode(mat),
+            range,
+            style,
+            AudioData(audio),
+        ))
+        // .observe(on_waveform_drag)
+        .observe(on_waveform_drag_start)
+        .observe(on_waveform_drag_end)
+        .observe(on_waveform_scroll);
 }
 
 fn update_texture_on_range_change(
-    audio: Res<AudioData>,
-    query: Query<(
-        &ViewportRange,
-        &WaveformStyle,
-        &MaterialNode<WaveformMaterial>,
-    )>,
+    query: Query<
+        (
+            &AudioData,
+            &ViewportRange,
+            &WaveformStyle,
+            &MaterialNode<WaveformMaterial>,
+        ),
+        Changed<ViewportRange>,
+    >,
     mut images: ResMut<Assets<Image>>,
     mut ui_materials: ResMut<Assets<WaveformMaterial>>,
-    mut last: Local<Option<(usize, usize, u32)>>,
 ) {
-    let Ok((range, style, mat_node)) = query.single() else {
-        return;
-    };
-
-    let current = (range.min_index, range.max_index, style.texture_width);
-    if *last == Some(current) {
-        return;
-    }
-    *last = Some(current);
-
-    if let Some(material) = ui_materials.get_mut(&mat_node.0)
-        && let Some(mut image) = images.get_mut(&material.waveform)
-    {
-        image.data = Some(WaveformDecodeF32::generate_waveform_data(
-            audio.0.channel(0),
-            range,
-            style.texture_width,
-        ));
+    for (audio, range, style, mat_node) in query.iter() {
+        if let Some(material) = ui_materials.get_mut(&mat_node.0)
+            && let Some(mut image) = images.get_mut(&material.waveform)
+        {
+            image.data = Some(WaveformDecodeF32::generate_waveform_data(
+                audio.0.channel(0),
+                range,
+                style.texture_width,
+            ));
+        }
     }
 }
 
 fn update_uniform_on_view_or_style_change(
-    query: Query<(&WaveformStyle, &MaterialNode<WaveformMaterial>)>,
+    query: Query<(&WaveformStyle, &MaterialNode<WaveformMaterial>), Changed<WaveformStyle>>,
     mut ui_materials: ResMut<Assets<WaveformMaterial>>,
-    mut last: Local<Option<(u32, f32, f32, [f32; 4], f32)>>,
 ) {
-    let Ok((style, mat_node)) = query.single() else {
-        return;
-    };
-
-    let key = (
-        style.texture_width,
-        style.scale_y,
-        style.line_width,
-        style.color.to_array(),
-        style.padding_px,
-    );
-    if *last == Some(key) {
-        return;
-    }
-    *last = Some(key);
-
-    if let Some(mut material) = ui_materials.get_mut(&mat_node.0) {
-        material.params = WaveformParams::build_params(style);
+    for (style, mat_node) in query.iter() {
+        if let Some(mut material) = ui_materials.get_mut(&mat_node.0) {
+            material.params = WaveformParams::build_params(style);
+        }
     }
 }
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_plugins(MeshPickingPlugin)
         .add_plugins(WaveformPlugin)
         .add_systems(Startup, setup)
         .add_systems(
@@ -114,63 +103,125 @@ fn main() {
             )
                 .chain(),
         )
-        .add_systems(PostUpdate, handle_input)
+        .add_systems(PostUpdate, on_waveform_drag_system)
+        // .add_systems(PostUpdate, handle_input)
         .run();
 }
 
-fn handle_input(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(&mut ViewportRange, &mut WaveformStyle)>,
-    audio: Res<AudioData>,
+/// 拖拽开始：给实体打上 WaveformRangeDrag 标记
+fn on_waveform_drag_start(drag_start: On<PointerDragStart>, mut commands: Commands) {
+    commands.entity(drag_start.entity).insert(WaveformRangeDrag);
+}
+
+/// 拖拽结束：移除标记
+fn on_waveform_drag_end(drag_end: On<PointerDragEnd>, mut commands: Commands) {
+    commands
+        .entity(drag_end.entity)
+        .remove::<WaveformRangeDrag>();
+}
+
+fn on_waveform_scroll(
+    scroll: On<PointerScroll>,
+    mut query: Query<(&AudioData, &mut ViewportRange)>,
 ) {
-    let Ok((mut range, mut style)) = query.single_mut() else {
+    let Ok((audio, mut range)) = query.get_mut(scroll.entity) else {
         return;
     };
     let total = audio.0.data[0].len();
-
-    // ← → 平移（改 ViewportRange）
-    if keys.pressed(KeyCode::ArrowRight) {
-        let span = range.span();
-        range.pan(span as isize / 20, total);
-    }
-    if keys.pressed(KeyCode::ArrowLeft) {
-        let span = range.span();
-        range.pan(-(span as isize / 20), total);
+    if total == 0 {
+        return;
     }
 
-    // + / - X 轴缩放（改 ViewportRange）
+    // 根据滚动单位归一化，使不同设备的缩放体验一致
+    let scroll_amount = match scroll.unit {
+        MouseScrollUnit::Line => scroll.y * 0.15, // 行模式，一格约15%
+        MouseScrollUnit::Pixel => scroll.y * 0.002, // 像素模式，更精细
+    };
+    // 使用 exp 保证缩放的正负对称性，避免来回缩放产生漂移
+    let zoom_factor = scroll_amount.exp();
+
+    // 以当前视口中心为焦点进行缩放
     let center = range.min_index + range.span() / 2;
-    if keys.just_pressed(KeyCode::Equal) {
-        range.zoom_at(1.5, center, total);
-    }
-    if keys.just_pressed(KeyCode::Minus) {
-        range.zoom_at(1.0 / 1.5, center, total);
+    range.zoom_at(zoom_factor, center, total);
+}
+
+const SPEED_FACTOR: f32 = 10000.0;
+
+fn on_waveform_drag_system(
+    pointer_state: Res<PointerState>,
+    pointer_locations: Query<(&PointerId, &PointerLocation)>,
+    mut mouse_motion: MessageReader<MouseMotion>,
+    mut query: Query<(&AudioData, &mut ViewportRange, &ComputedNode), With<WaveformRangeDrag>>,
+    windows: Query<&Window>,
+) {
+    // 1. 检查鼠标左键是否在拖拽，并找到被拖拽的实体
+    let dragged_entity = pointer_state
+        .pointer_buttons
+        .get(&(PointerId::Mouse, PointerButton::Primary))
+        .and_then(|state| state.dragging.keys().next().copied());
+
+    let Some(dragged_entity) = dragged_entity else {
+        // 未拖拽时也要消费掉消息，避免积压
+        for _ in mouse_motion.read() {}
+        return;
+    };
+
+    // 2. 拿到对应实体的音频、视口、布局
+    let Ok((audio, mut range, node)) = query.get_mut(dragged_entity) else {
+        for _ in mouse_motion.read() {}
+        return;
+    };
+
+    let total = audio.0.channel(0).len();
+    if total == 0 {
+        for _ in mouse_motion.read() {}
+        return;
     }
 
-    // R 全量（改 ViewportRange）
-    if keys.just_pressed(KeyCode::KeyR) {
-        range.set_full(total);
-    }
+    // 3. 获取指针当前所在窗口和位置
+    let Some((_, pointer_loc)) = pointer_locations
+        .iter()
+        .find(|(id, _)| **id == PointerId::Mouse)
+    else {
+        for _ in mouse_motion.read() {}
+        return;
+    };
+    let Some(location) = pointer_loc.location() else {
+        for _ in mouse_motion.read() {}
+        return;
+    };
+    let NormalizedRenderTarget::Window(window_ref) = &location.target else {
+        for _ in mouse_motion.read() {}
+        return;
+    };
+    let Ok(window) = windows.get(window_ref.entity()) else {
+        for _ in mouse_motion.read() {}
+        return;
+    };
 
-    // ↑ / ↓ Y 轴振幅缩放（改 WaveformStyle）
-    if keys.just_pressed(KeyCode::ArrowUp) || keys.just_pressed(KeyCode::PageUp) {
-        style.adjust_scale_y(1.2);
-        info!("scale_y = {:.2}", style.scale_y);
-    }
-    if keys.just_pressed(KeyCode::ArrowDown) || keys.just_pressed(KeyCode::PageDown) {
-        style.adjust_scale_y(1.0 / 1.2);
-        info!("scale_y = {:.2}", style.scale_y);
-    }
+    // 4. 累计本帧所有 MouseMotion 的 delta
+    let dx: f32 = mouse_motion.read().map(|e| e.delta.x).sum();
 
-    // 可选：纹理分辨率调节示例（[ / ] 减半 / 翻倍）
-    if keys.just_pressed(KeyCode::BracketRight) {
-        let value = style.texture_width * 2;
-        style.set_texture_width((value).min(4096));
-        info!("texture_width = {}", style.texture_width);
+    // 5. 计算 cursor_x
+    let logical_pixels = window.physical_width() as f32 / window.scale_factor();
+    let ratio = location.position.x / logical_pixels - 0.5;
+
+    let cursor_x = match ratio {
+        n if n < -0.3 => (n + 0.3) / 0.2,
+        n if n > 0.3 => (n - 0.3) / 0.2,
+        _ => {
+            // 中心死区：只做常规拖拽
+            let width_px = node.size().x.max(1.0);
+            let samples_per_px = range.span() as f32 / width_px;
+            range.pan((-dx * samples_per_px) as isize, total);
+            return;
+        }
     }
-    if keys.just_pressed(KeyCode::BracketLeft) {
-        let value = style.texture_width / 2;
-        style.set_texture_width((value).max(256));
-        info!("texture_width = {}", style.texture_width);
+    .clamp(-1.0, 1.0);
+
+    // 6. 边缘自动滚动
+    let delta = (cursor_x * SPEED_FACTOR) as isize;
+    if delta != 0 {
+        range.pan(delta, total);
     }
 }

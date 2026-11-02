@@ -3,7 +3,7 @@ use bevy_waveform::WaveformPlugin;
 use bevy_waveform::load::WaveformDecodeF32;
 use bevy_waveform::render::{ViewportRange, WaveformMaterial, WaveformParams, WaveformStyle};
 
-#[derive(Resource)]
+#[derive(Component)]
 pub struct AudioData(WaveformDecodeF32);
 
 pub const AUDIO: &str = r".\assets\audio.wav";
@@ -44,15 +44,14 @@ fn setup(
         Visibility::default(),
         range,
         style,
+        AudioData(audio),
     ));
-
-    commands.insert_resource(AudioData(audio));
 }
 
 fn update_texture_on_range_change(
-    audio: Res<AudioData>,
     // ✅ Query 加上 &WaveformStyle，需要读 texture_width
     query: Query<(
+        &AudioData,
         &ViewportRange,
         &WaveformStyle,
         &MeshMaterial2d<WaveformMaterial>,
@@ -62,7 +61,7 @@ fn update_texture_on_range_change(
     // ✅ 缓存 key 加上 texture_width：宽度变化也要重建
     mut last: Local<Option<(usize, usize, u32)>>,
 ) {
-    let Ok((range, style, mat_handle)) = query.single() else {
+    let Ok((audio, range, style, mat_handle)) = query.single() else {
         return;
     };
 
@@ -131,10 +130,9 @@ fn main() {
 
 fn handle_input(
     keys: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(&mut ViewportRange, &mut WaveformStyle)>,
-    audio: Res<AudioData>,
+    mut query: Query<(&AudioData, &mut ViewportRange, &mut WaveformStyle)>,
 ) {
-    let Ok((mut range, mut style)) = query.single_mut() else {
+    let Ok((audio, mut range, mut style)) = query.single_mut() else {
         return;
     };
     let total = audio.0.data[0].len();

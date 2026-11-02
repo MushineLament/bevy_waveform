@@ -12,6 +12,9 @@ use bevy::{
 
 use crate::{WAVEFORM_SHADER_HANDLE, WAVEFORM_UI_SHADER_HANDLE};
 
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct WaveformRangeDrag;
+
 /// 视口：X 轴时间范围 + 纹理宽度
 /// 注意：scale_y 已移除，振幅缩放属于视觉样式，见 WaveformStyle
 #[derive(Component, Clone, Copy, Debug)]
