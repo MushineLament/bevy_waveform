@@ -1,0 +1,18 @@
+[package]
+name = "bevy_waveform"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "bevy_waveform"
+path = "src/lib.rs"
+
+[dependencies]
+bevy = { version = "0.20.0", features = [
+    "2d",
+    "bevy_feathers",
+    "debug",
+    "serialize",
+] }
+serde = { version = "1.0.229", features = ["derive"] } # 新增
+symphonium = "0.13.0"
