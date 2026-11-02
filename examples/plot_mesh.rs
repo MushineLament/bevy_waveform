@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::sprite_render::Material2dPlugin;
+use bevy_waveform::WaveformPlugin;
 use bevy_waveform::load::WaveformDecodeF32;
 use bevy_waveform::render::{ViewportRange, WaveformMaterial, WaveformParams, WaveformStyle};
 
@@ -115,7 +115,7 @@ fn update_uniform_on_view_or_style_change(
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(Material2dPlugin::<WaveformMaterial>::default())
+        .add_plugins(WaveformPlugin)
         .add_systems(Startup, setup)
         .add_systems(
             Update,

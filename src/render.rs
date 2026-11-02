@@ -10,6 +10,8 @@ use bevy::{
     ui_render::ui_material::UiMaterial,
 };
 
+use crate::{WAVEFORM_SHADER_HANDLE, WAVEFORM_UI_SHADER_HANDLE};
+
 /// 视口：X 轴时间范围 + 纹理宽度
 /// 注意：scale_y 已移除，振幅缩放属于视觉样式，见 WaveformStyle
 #[derive(Component, Clone, Copy, Debug)]
@@ -131,7 +133,7 @@ pub struct WaveformMaterial {
 
 impl Material2d for WaveformMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/waveform.wesl".into()
+        WAVEFORM_SHADER_HANDLE.into()
     }
     fn alpha_mode(&self) -> AlphaMode2d {
         AlphaMode2d::Blend
@@ -140,6 +142,6 @@ impl Material2d for WaveformMaterial {
 
 impl UiMaterial for WaveformMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/waveform_ui.wesl".into()
+        WAVEFORM_UI_SHADER_HANDLE.into()
     }
 }
