@@ -1,11 +1,15 @@
-use bevy::{ecs::component::Component, math::Vec4};
+use bevy::{
+    ecs::{component::Component, template::FromTemplate},
+    math::Vec4,
+};
 
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct WaveformRangeDrag;
 
 /// 视口：X 轴时间范围 + 纹理宽度
 /// 注意：scale_y 已移除，振幅缩放属于视觉样式，见 WaveformStyle
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, FromTemplate)]
+#[require(WaveformStyle)]
 pub struct ViewportRange {
     pub size: usize,
     pub min: usize,
