@@ -8,7 +8,7 @@ use bevy::{
 };
 use symphonium::{DecodedAudio, DecodedAudioF32, error::LoadError};
 
-use crate::render::ViewportRange;
+use crate::ViewportRange;
 
 #[derive(Deref, DerefMut)]
 pub struct WaveformDecode(pub DecodedAudio);
@@ -63,8 +63,8 @@ impl WaveformDecodeF32 {
 
     pub fn generate_waveform_data(channel: &[f32], view: &ViewportRange, width: u32) -> Vec<u8> {
         let total = channel.len();
-        let lo = view.min_index.min(total);
-        let hi = view.max_index.min(total).max(lo);
+        let lo = view.min.min(total);
+        let hi = view.max.min(total).max(lo);
         let slice = &channel[lo..hi];
 
         let (mins, maxs) = resample_min_max_to_width(slice, width as usize);
