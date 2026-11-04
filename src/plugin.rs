@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use bevy::app::{App, Plugin, PostUpdate, Update};
 use bevy::asset::{Assets, load_internal_asset};
+use bevy::camera::primitives::Aabb;
 use bevy::camera::{Camera, NormalizedRenderTarget, RenderTarget};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::ContainsEntity;
@@ -16,7 +17,7 @@ use bevy::picking::events::{PointerDragEnd, PointerDragStart, PointerScroll, Poi
 use bevy::picking::pointer::{PointerButton, PointerId};
 use bevy::shader::Shader;
 use bevy::sprite_render::{Material2dPlugin, MeshMaterial2d};
-use bevy::transform::components::{GlobalTransform, Transform};
+use bevy::transform::components::GlobalTransform;
 use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy::ui_render::UiMaterialPlugin;
 use bevy::ui_render::ui_material::MaterialNode;
@@ -44,7 +45,7 @@ pub fn on_waveform_scroll(
     mut query: Query<(
         &mut ViewportRange,
         Option<(&ComputedNode, &UiGlobalTransform)>,
-        Option<&Transform>,
+        Option<(&GlobalTransform, &Aabb)>,
     )>,
     camera_query: Query<(&Camera, &GlobalTransform, &RenderTarget)>,
 ) {
@@ -74,9 +75,7 @@ pub fn on_waveform_scroll(
 
         // ── ✅ 用焦点缩放，不是 center ──
         range.zoom_at(zoom_factor, focus_index);
-    }
-
-    if let Some(transform) = trans {
+    } else if let Some((transform, aabb)) = trans {
         // ✅ 通过 NormalizedRenderTarget 匹配相机
         let Some((camera, camera_transform)) = camera_query
             .iter()
@@ -110,21 +109,21 @@ pub fn on_waveform_scroll(
         let inv = transform.to_matrix().inverse();
         let local = inv.transform_point3(world_pos.extend(0.0));
 
-        // 矩形宽度 800，本地 x ∈ [-400, 400] → ratio ∈ [0, 1]
-        let half_width = 400.0_f32;
-        let ratio = (local.x / (2.0 * half_width) + 0.5).clamp(0.0, 1.0);
+        let local_width = aabb.half_extents.x * 2.0;
+        let world_width = local_width * transform.scale().x.abs();
+
+        let ratio = (local.x / world_width + 0.5).clamp(0.0, 1.0);
 
         // ratio → 焦点采样索引（绝对索引）
         let focus_index = range.min + (ratio * range.span() as f32).round() as usize;
         let focus_index = focus_index.min(range.size.saturating_sub(1));
 
         range.zoom_at(zoom_factor, focus_index);
+    } else {
+        // 以当前视口中心为焦点进行缩放
+        let center = range.min + range.span() / 2;
+        range.zoom_at(zoom_factor, center);
     }
-    // else {
-    //     // 以当前视口中心为焦点进行缩放
-    //     let center = range.min + range.span() / 2;
-    //     range.zoom_at(zoom_factor, center);
-    // }
 }
 
 pub struct WaveformBasePlugin;
@@ -157,15 +156,13 @@ impl Plugin for WaveformBasePlugin {
     }
 }
 
-const MESH_WIDTH: f32 = 800.0; // 与 setup 里 Rectangle::new(800.0, _) 一致
-
 pub fn on_waveform_drag_system(
     pointer_state: Res<PointerState>,
     mut query: Query<
         (
             &mut ViewportRange,
             Option<(&ComputedNode, &UiGlobalTransform)>,
-            Option<&Transform>,
+            Option<(&GlobalTransform, &Aabb)>,
         ),
         With<WaveformRangeDrag>,
     >,
@@ -194,11 +191,12 @@ pub fn on_waveform_drag_system(
     let node_screen_width: f32 = if let Some((compute, _)) = compute {
         // UI：物理像素 × inverse_scale_factor = 逻辑像素
         (compute.size.x * compute.inverse_scale_factor()).max(1.0)
-    } else if let Some(transform) = trans {
-        // Mesh：世界宽度 → 屏幕逻辑像素宽度
-        let world_width = MESH_WIDTH * transform.scale.x.abs().max(1e-6);
+    } else if let Some((transform, aabb)) = trans {
+        let local_width = aabb.half_extents.x * 2.0;
+        let world_width = local_width * transform.scale().x.abs();
+
         let half = world_width * 0.5;
-        let center_w = transform.translation.truncate();
+        let center_w = transform.translation().truncate();
         let left_w = center_w - Vec2::X * half;
         let right_w = center_w + Vec2::X * half;
 
@@ -247,16 +245,11 @@ pub fn update_uniform_on_view_or_style_change(
     mut ui_materials: ResMut<Assets<WaveformMaterial>>,
 ) {
     for (style, mat_node, mat_mesh) in query.iter() {
-        if let Some(mat_node) = mat_node
-            && let Some(mut material) = ui_materials.get_mut(&mat_node.0)
+        if let Some(handle) = mat_node.map(|mat| &mat.0).or(mat_mesh.map(|mat| &mat.0))
+            && let Some(mut material) = ui_materials.get_mut(handle)
         {
             material.params = WaveformParams::build_params(style);
-        }
-        if let Some(mat_mesh) = mat_mesh
-            && let Some(mut material) = ui_materials.get_mut(&mat_mesh.0)
-        {
-            material.params = WaveformParams::build_params(style);
-        }
+        };
     }
 }
 
@@ -306,28 +299,24 @@ pub fn update_texture_on_range_change<T: WaveformSource>(
         )>,
     >,
     mut images: ResMut<Assets<Image>>,
-    mut ui_materials: ResMut<Assets<WaveformMaterial>>,
+    ui_materials: Res<Assets<WaveformMaterial>>,
 ) {
     for (audio, range, style, mat_node, mat_mesh) in query.iter() {
-        if let Some(mat_node) = mat_node
-            && let Some(material) = ui_materials.get_mut(&mat_node.0)
-            && let Some(mut image) = images.get_mut(&material.waveform)
-        {
-            image.data = Some(WaveformDecodeF32::generate_waveform_data(
-                audio.channel_samples(),
-                range,
-                style.texture_width,
-            ));
-        }
-        if let Some(mat_mesh) = mat_mesh
-            && let Some(material) = ui_materials.get_mut(&mat_mesh.0)
-            && let Some(mut image) = images.get_mut(&material.waveform)
-        {
-            image.data = Some(WaveformDecodeF32::generate_waveform_data(
-                audio.channel_samples(),
-                range,
-                style.texture_width,
-            ));
-        }
+        let Some(material) = mat_node
+            .and_then(|mat| ui_materials.get(&mat.0))
+            .or(mat_mesh.and_then(|mat| ui_materials.get(&mat.0)))
+        else {
+            return;
+        };
+
+        let Some(mut image) = images.get_mut(&material.waveform) else {
+            return;
+        };
+
+        image.data = Some(WaveformDecodeF32::generate_waveform_data(
+            audio.channel_samples(),
+            range,
+            style.texture_width,
+        ));
     }
 }
