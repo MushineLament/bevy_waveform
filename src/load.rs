@@ -118,23 +118,27 @@ pub fn resample_min_max_to_width(source: &[f32], target_width: usize) -> (Vec<f3
 
     if source.len() <= target_width {
         // 放大：线性插值，min = max（点连线）
-        let mut mins = Vec::with_capacity(target_width);
-        let mut maxs = Vec::with_capacity(target_width);
         let max_idx = (source.len() - 1).max(1) as f32;
-        for i in 0..target_width {
-            let t = if target_width == 1 {
-                0.0
-            } else {
-                i as f32 / (target_width - 1) as f32
-            };
-            let pos = t * max_idx;
-            let i0 = pos.floor() as usize;
-            let i1 = (i0 + 1).min(source.len() - 1);
-            let frac = pos - i0 as f32;
-            let v = source[i0] * (1.0 - frac) + source[i1] * frac;
-            mins.push(v);
-            maxs.push(v);
-        }
+
+        let inv = if target_width == 1 {
+            0.0
+        } else {
+            1.0 / (target_width - 1) as f32
+        } * max_idx;
+
+        let vec = (0..target_width)
+            .map(|i| {
+                let pos = i as f32 * inv;
+                let i0 = pos.floor() as usize;
+                let i1 = (i0 + 1).min(source.len() - 1);
+                let frac = pos - i0 as f32;
+                source[i0] * (1.0 - frac) + source[i1] * frac
+            })
+            .collect::<Vec<f32>>();
+
+        let mins = vec.clone();
+        let maxs = vec;
+
         (mins, maxs)
     } else {
         // 缩小：每段取 min 和 max（真实包络，不稀疏）
@@ -149,16 +153,10 @@ pub fn resample_min_max_to_width(source: &[f32], target_width: usize) -> (Vec<f3
                 maxs.push(0.0);
                 continue;
             }
-            let mut mn = source[start];
-            let mut mx = source[start];
-            for &s in &source[start..end] {
-                if s < mn {
-                    mn = s;
-                }
-                if s > mx {
-                    mx = s;
-                }
-            }
+            let slice = &source[start..end];
+            let mn = slice.iter().copied().fold(f32::INFINITY, f32::min);
+            let mx = slice.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+
             mins.push(mn);
             maxs.push(mx);
         }
