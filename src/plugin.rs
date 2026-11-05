@@ -22,10 +22,9 @@ use bevy::ui::{ComputedNode, UiGlobalTransform};
 use bevy::ui_render::UiMaterialPlugin;
 use bevy::ui_render::ui_material::MaterialNode;
 
-use crate::load::WaveformDecodeF32;
 use crate::{
-    ViewportRange, WAVEFORM_SHADER_HANDLE, WAVEFORM_UI_SHADER_HANDLE, WaveformMaterial,
-    WaveformParams, WaveformRangeDrag, WaveformStyle,
+    ViewportRange, WAVEFORM_SHADER_HANDLE, WAVEFORM_UI_SHADER_HANDLE, WaveformImage,
+    WaveformMaterial, WaveformParams, WaveformRangeDrag, WaveformStyle,
 };
 
 /// 拖拽开始：给实体打上 WaveformRangeDrag 标记
@@ -257,7 +256,7 @@ pub struct WaveformPlugin<T: Send + Sync + 'static> {
     _mark: PhantomData<T>,
 }
 
-impl<T: Send + Sync + 'static + WaveformSource> WaveformPlugin<T> {
+impl<T: Send + Sync + 'static + WaveformImage + Component> WaveformPlugin<T> {
     pub fn new() -> Self {
         Self {
             _mark: PhantomData::<T>,
@@ -265,7 +264,7 @@ impl<T: Send + Sync + 'static + WaveformSource> WaveformPlugin<T> {
     }
 }
 
-impl<T: Send + Sync + 'static + WaveformSource> Plugin for WaveformPlugin<T> {
+impl<T: Send + Sync + 'static + WaveformImage + Component> Plugin for WaveformPlugin<T> {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<WaveformBasePlugin>() {
             app.add_plugins(WaveformBasePlugin);
@@ -275,11 +274,7 @@ impl<T: Send + Sync + 'static + WaveformSource> Plugin for WaveformPlugin<T> {
     }
 }
 
-pub trait WaveformSource: Component {
-    fn channel_samples(&self) -> &[f32];
-}
-
-pub fn update_texture_on_range_change<T: WaveformSource>(
+pub fn update_texture_on_range_change<T: WaveformImage + Component>(
     query: Query<
         (
             &T,
@@ -313,10 +308,6 @@ pub fn update_texture_on_range_change<T: WaveformSource>(
             return;
         };
 
-        image.data = Some(WaveformDecodeF32::generate_waveform_data(
-            audio.channel_samples(),
-            range,
-            style.texture_width,
-        ));
+        image.data = Some(audio.channel_samples(range, style.texture_width));
     }
 }

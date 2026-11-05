@@ -9,3 +9,6 @@ pub use components::*;
 
 mod plugin;
 pub use plugin::*;
+
+mod channel;
+pub use channel::*;

@@ -15,8 +15,8 @@ use bevy::{
     ui_widgets::ValueChange,
 };
 use bevy_waveform::{
-    ViewportRange, WaveformDecodeF32, WaveformMaterial, WaveformParams, WaveformPlugin,
-    WaveformSource, WaveformStyle, on_waveform_drag_end, on_waveform_drag_start,
+    ViewportRange, WaveformChannel, WaveformDecodeF32, WaveformImage, WaveformMaterial,
+    WaveformParams, WaveformPlugin, WaveformStyle, on_waveform_drag_end, on_waveform_drag_start,
     on_waveform_scroll,
 };
 
@@ -111,9 +111,13 @@ fn demo_column_2() -> impl Scene {
 #[derive(Component)]
 pub struct AudioData(WaveformDecodeF32);
 
-impl WaveformSource for AudioData {
-    fn channel_samples(&self) -> &[f32] {
-        self.0.channel(0)
+impl WaveformImage for AudioData {
+    fn create_image(&self, view: &ViewportRange, width: u32) -> Image {
+        self.0.channel(0).create_image(view, width)
+    }
+
+    fn channel_samples(&self, view: &ViewportRange, width: u32) -> Vec<u8> {
+        self.0.channel(0).channel_samples(view, width)
     }
 }
 

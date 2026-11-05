@@ -1,21 +1,24 @@
 use bevy::prelude::*;
 use bevy_waveform::{
-    ViewportRange, WaveformDecodeF32, WaveformMaterial, WaveformParams, WaveformStyle,
+    ViewportRange, WaveformChannel, WaveformDecodeF32, WaveformImage, WaveformMaterial,
+    WaveformParams, WaveformStyle,
 };
 use bevy_waveform::{
-    WaveformPlugin, WaveformSource, on_waveform_drag_end, on_waveform_drag_start,
-    on_waveform_scroll,
+    WaveformPlugin, on_waveform_drag_end, on_waveform_drag_start, on_waveform_scroll,
 };
 
 #[derive(Component)]
 pub struct AudioData(WaveformDecodeF32);
 
-impl WaveformSource for AudioData {
-    fn channel_samples(&self) -> &[f32] {
-        self.0.channel(0)
+impl WaveformImage for AudioData {
+    fn create_image(&self, view: &ViewportRange, width: u32) -> Image {
+        self.0.channel(0).create_image(view, width)
+    }
+
+    fn channel_samples(&self, view: &ViewportRange, width: u32) -> Vec<u8> {
+        self.0.channel(0).channel_samples(view, width)
     }
 }
-
 pub const AUDIO: &str = r".\assets\audio.wav";
 
 fn setup(
