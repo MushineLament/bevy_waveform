@@ -112,10 +112,6 @@ fn demo_column_2() -> impl Scene {
 pub struct AudioData(WaveformDecodeF32);
 
 impl WaveformImage for AudioData {
-    fn create_image(&self, view: &ViewportRange, width: u32) -> Image {
-        self.0.channel(0).create_image(view, width)
-    }
-
     fn channel_samples(&self, view: &ViewportRange, width: u32) -> Vec<u8> {
         self.0.channel(0).channel_samples(view, width)
     }

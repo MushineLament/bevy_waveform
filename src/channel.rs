@@ -22,7 +22,7 @@ impl ChannelF32 {
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Deref, DerefMut)]
+#[derive(Debug, Default, Clone, PartialEq, Deref, DerefMut, Copy)]
 pub struct ChannelF32Ref<'a>(pub &'a [f32]);
 
 impl<'a> WaveformChannel for ChannelF32Ref<'a> {
@@ -36,11 +36,6 @@ pub trait WaveformChannel {
 }
 
 pub trait WaveformImage {
-    fn create_image(&self, view: &ViewportRange, width: u32) -> Image;
-    fn channel_samples(&self, view: &ViewportRange, width: u32) -> Vec<u8>;
-}
-
-impl WaveformImage for ChannelF32Ref<'_> {
     fn create_image(&self, view: &ViewportRange, width: u32) -> Image {
         let mut image = Image::new_fill(
             Extent3d {
@@ -62,16 +57,16 @@ impl WaveformImage for ChannelF32Ref<'_> {
         image
     }
 
+    fn channel_samples(&self, view: &ViewportRange, width: u32) -> Vec<u8>;
+}
+
+impl WaveformImage for ChannelF32Ref<'_> {
     fn channel_samples(&self, view: &ViewportRange, width: u32) -> Vec<u8> {
         generate_waveform_data(self.channel(), view, width)
     }
 }
 
 impl WaveformImage for ChannelF32 {
-    fn create_image(&self, view: &ViewportRange, width: u32) -> Image {
-        self.as_ref().create_image(view, width)
-    }
-
     fn channel_samples(&self, view: &ViewportRange, width: u32) -> Vec<u8> {
         self.as_ref().channel_samples(view, width)
     }
